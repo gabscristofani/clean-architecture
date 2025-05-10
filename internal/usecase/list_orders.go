@@ -1,46 +1,50 @@
 package usecase
 
 import (
-	"github.com/leonardosm2/clean-architecture/internal/entity"
+	"github.com/gabscristofani/clean-architecture/internal/entity"
+	"github.com/gabscristofani/clean-architecture/pkg/events"
 )
 
-type ListOrdersDTO []ItemListOrdersDTO
-
-type ItemListOrdersDTO struct {
+type ListOrdersOutputDTO struct {
 	ID         string  `json:"id"`
 	Price      float64 `json:"price"`
 	Tax        float64 `json:"tax"`
 	FinalPrice float64 `json:"final_price"`
 }
 
-type ListOrdersUseCase struct {
+type ListOrderUseCase struct {
 	OrderRepository entity.OrderRepositoryInterface
+	OrderCreated    events.EventInterface
+	EventDispatcher events.EventDispatcherInterface
 }
 
-func NewListOrdersUseCase(
+func NewListOrderUseCase(
 	OrderRepository entity.OrderRepositoryInterface,
-) *ListOrdersUseCase {
-	return &ListOrdersUseCase{
+	OrderCreated events.EventInterface,
+	EventDispatcher events.EventDispatcherInterface,
+) *ListOrderUseCase {
+	return &ListOrderUseCase{
 		OrderRepository: OrderRepository,
+		OrderCreated:    OrderCreated,
+		EventDispatcher: EventDispatcher,
 	}
 }
 
-func (c *ListOrdersUseCase) Execute() (ListOrdersDTO, error) {
-	orders, err := c.OrderRepository.List()
+func (c *ListOrderUseCase) Execute() ([]ListOrdersOutputDTO, error) {
+	items, err := c.OrderRepository.FindAll()
 	if err != nil {
 		return nil, err
 	}
 
-	var dto ListOrdersDTO
-	for _, order := range orders {
-		dtoItem := ItemListOrdersDTO{
+	var orders []ListOrdersOutputDTO
+	for _, order := range items {
+		orders = append(orders, ListOrdersOutputDTO{
 			ID:         order.ID,
 			Price:      order.Price,
 			Tax:        order.Tax,
 			FinalPrice: order.FinalPrice,
-		}
-		dto = append(dto, dtoItem)
+		})
 	}
 
-	return dto, nil
+	return orders, nil
 }

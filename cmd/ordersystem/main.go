@@ -24,37 +24,42 @@ import (
 )
 
 func main() {
+	// ----- CONFIGS
 	configs, err := configs.LoadConfig(".")
+	print(configs)
+
 	if err != nil {
 		panic(err)
 	}
 
+	// ----- DATABASE
 	db, err := sql.Open(configs.DBDriver, fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", configs.DBUser, configs.DBPassword, configs.DBHost, configs.DBPort, configs.DBName))
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 
-	rabbitMQChannel := getRabbitMQChannel()
-
+	// ----- RABBITMQ
+	rabbitMQChannel := getRabbitMQChannel(configs.RMQUrl)
 	eventDispatcher := events.NewEventDispatcher()
 	eventDispatcher.Register("OrderCreated", &handler.OrderCreatedHandler{
 		RabbitMQChannel: rabbitMQChannel,
 	})
-
 	createOrderUseCase := NewCreateOrderUseCase(db, eventDispatcher)
-	listOrdersUseCase := NewListOrdersUseCase(db)
+	listOrderUsecase := NewListOrderUseCase(db, eventDispatcher)
 
+	// ----- WEBSERVER
 	webserver := webserver.NewWebServer(configs.WebServerPort)
 	webOrderHandler := NewWebOrderHandler(db, eventDispatcher)
-	webserver.AddHandler("/order", http.MethodPost, webOrderHandler.Create)
-	webserver.AddHandler("/order", http.MethodGet, webOrderHandler.List)
+	webserver.AddHandler("/order", "POST", webOrderHandler.Create)
+	webserver.AddHandler("/order", "GET", webOrderHandler.List)
 	fmt.Println("Starting web server on port", configs.WebServerPort)
 	go webserver.Start()
 
+	// ----- GRPC_SERVER
 	grpcServer := grpc.NewServer()
-	orderService := service.NewOrderService(*createOrderUseCase, *listOrdersUseCase)
-	pb.RegisterOrderServiceServer(grpcServer, orderService)
+	createOrderService := service.NewOrderService(*createOrderUseCase, *listOrderUsecase)
+	pb.RegisterOrderServiceServer(grpcServer, createOrderService)
 	reflection.Register(grpcServer)
 
 	fmt.Println("Starting gRPC server on port", configs.GRPCServerPort)
@@ -64,9 +69,10 @@ func main() {
 	}
 	go grpcServer.Serve(lis)
 
+	// ----- GRAPHQL_SERVER
 	srv := graphql_handler.NewDefaultServer(graph.NewExecutableSchema(graph.Config{Resolvers: &graph.Resolver{
 		CreateOrderUseCase: *createOrderUseCase,
-		ListOrdersUseCase:  *listOrdersUseCase,
+		ListOrderUseCase:   *listOrderUsecase,
 	}}))
 	http.Handle("/", playground.Handler("GraphQL playground", "/query"))
 	http.Handle("/query", srv)
@@ -75,8 +81,8 @@ func main() {
 	http.ListenAndServe(":"+configs.GraphQLServerPort, nil)
 }
 
-func getRabbitMQChannel() *amqp.Channel {
-	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+func getRabbitMQChannel(end string) *amqp.Channel {
+	conn, err := amqp.Dial(end)
 	if err != nil {
 		panic(err)
 	}
